@@ -3,8 +3,10 @@
  *
  * Architecture role:
  * - Keeps module boundaries explicit between config, core, CLI, and server.
- * - Makes it easy to replace placeholder logic with real SDK/API integrations later.
+ * - Defines stable contracts for real Jupiter Router and Gill transaction flow.
  */
+
+import type { BaseTransactionMessage, TransactionMessageWithFeePayer } from "gill";
 
 export type RuntimeMode = "cli" | "server";
 
@@ -16,27 +18,72 @@ export interface SwapRequestPayload {
     slippageBps?: number;
 }
 
+export interface JupiterRawAccountMeta {
+    pubkey: string;
+    isSigner: boolean;
+    isWritable: boolean;
+}
+
+export interface JupiterRawInstruction {
+    programId: string;
+    accounts: JupiterRawAccountMeta[];
+    data: string;
+}
+
+export interface JupiterBlockhashMetadata {
+    blockhash: string;
+    lastValidBlockHeight: number;
+    fetchedAt: number;
+}
+
+export interface JupiterBuildResponse {
+    inputMint: string;
+    outputMint: string;
+    inAmount: string;
+    outAmount: string;
+    otherAmountThreshold: string;
+    swapMode: string;
+    slippageBps: number;
+    priceImpactPct: string;
+    routePlan: Array<Record<string, unknown>>;
+    computeBudgetInstructions: JupiterRawInstruction[];
+    setupInstructions: JupiterRawInstruction[];
+    swapInstruction: JupiterRawInstruction;
+    otherInstructions: JupiterRawInstruction[];
+    cleanupInstruction: JupiterRawInstruction | null;
+    tipInstruction: JupiterRawInstruction | null;
+    addressesByLookupTableAddress: Record<string, string[]>;
+    blockhashWithMetadata: JupiterBlockhashMetadata;
+}
+
 export interface QuoteResponse {
-    quoteId: string;
     inputMint: string;
     outputMint: string;
     inAmountAtomic: string;
     outAmountAtomic: string;
+    otherAmountThresholdAtomic: string;
+    taker: string;
+    slippageBps: number;
+    swapMode: string;
     estimatedPriceImpactPct: number;
-    routePlan: string[];
-    rawProviderPayload: Record<string, unknown>;
+    routePlan: Array<Record<string, unknown>>;
+    rawProviderPayload: JupiterBuildResponse;
 }
 
 export interface SwapInstructionResponse {
-    instructionSetId: string;
-    computeBudgetInstructions: string[];
-    swapInstructions: string[];
-    cleanupInstructions: string[];
-    rawProviderPayload: Record<string, unknown>;
+    computeBudgetInstructions: JupiterRawInstruction[];
+    setupInstructions: JupiterRawInstruction[];
+    swapInstruction: JupiterRawInstruction;
+    otherInstructions: JupiterRawInstruction[];
+    cleanupInstruction: JupiterRawInstruction | null;
+    tipInstruction: JupiterRawInstruction | null;
+    addressesByLookupTableAddress: Record<string, string[]>;
+    blockhashWithMetadata: JupiterBlockhashMetadata;
+    rawProviderPayload: JupiterBuildResponse;
 }
 
 export interface PostSwapTransferAction {
-    destinationTokenAccount: string;
+    destinationOwnerAddress: string;
     amountAtomic: string;
 }
 
@@ -49,8 +96,10 @@ export interface BuildSwapTransactionOptions {
 
 export interface UnsignedSwapTransaction {
     unsignedTransactionId: string;
-    serializedMessageBase64: string;
+    transactionMessage: BaseTransactionMessage & TransactionMessageWithFeePayer;
     instructionCount: number;
+    requiredSignerAddress: string;
+    latestBlockhash: JupiterBlockhashMetadata;
     metadata: Record<string, unknown>;
 }
 
@@ -67,7 +116,7 @@ export interface ExecutionResult {
     attempts: number;
     slot: number | null;
     explorerUrl: string;
-    status: "mock-submitted" | "mock-confirmed" | "mock-failed";
+    status: "submitted" | "confirmed" | "failed";
     diagnostics: Record<string, unknown>;
 }
 

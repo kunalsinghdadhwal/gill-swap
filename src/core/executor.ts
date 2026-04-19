@@ -1,6 +1,14 @@
+import {
+    addSignersToTransactionMessage,
+    createSolanaClient,
+    getSignatureFromTransaction,
+    signTransactionMessageWithSigners
+} from "gill";
+import { loadKeypairSignerFromFile } from "gill/node";
+
 import { appConfig } from "../config/index.js";
 import type { ExecuteTransactionInput, ExecutionResult } from "../types/index.js";
-import { buildSolanaExplorerUrl, createMockId } from "../utils/helpers.js";
+import { buildSolanaExplorerUrl } from "../utils/helpers.js";
 import { logger } from "../utils/logger.js";
 import { retryWithBackoff } from "../utils/retry.js";
 
@@ -10,30 +18,50 @@ import { retryWithBackoff } from "../utils/retry.js";
  * Architecture role:
  * - Orchestrates simulation, signing, send retries, and confirmation checks.
  * - Central place for reliability and observability in swap execution lifecycle.
- * - Planned import surface: `gill/node` for signer/runtime helpers.
- *
- * NOTE:
- * - This module contains non-network placeholders only.
- * - TODO sections mark where Gill node signing and Solana RPC calls belong.
+ * - Uses `gill/node` signer loading and real RPC-backed execution.
  */
 
 export class TransactionExecutor {
+    private readonly solanaClient = createSolanaClient({
+        urlOrMoniker: appConfig.SOLANA_RPC_URL
+    });
+
+    private hotWalletSignerPromise: ReturnType<typeof loadKeypairSignerFromFile> | undefined;
+
     public async executeTransaction(input: ExecuteTransactionInput): Promise<ExecutionResult> {
-        logger.info("Starting placeholder execution pipeline", {
+        logger.info("Starting real execution pipeline", {
             unsignedTransactionId: input.unsignedTransaction.unsignedTransactionId,
             idempotencyKey: input.idempotencyKey
         });
 
-        const simulated = await this.simulateTransaction(input);
-        const signedPayload = await this.signTransaction(input);
+        const signer = await this.getHotWalletSigner();
+        if (signer.address !== input.unsignedTransaction.requiredSignerAddress) {
+            throw new Error(
+                `Hot wallet signer (${signer.address}) does not match required swap signer (${input.unsignedTransaction.requiredSignerAddress}).`
+            );
+        }
+
+        const transactionWithSigner = addSignersToTransactionMessage(
+            [signer],
+            input.unsignedTransaction.transactionMessage
+        );
+
+        const simulationResponse = await this.simulateTransaction(transactionWithSigner);
+        const simulationValue = simulationResponse.value;
+
+        if (simulationValue.err !== null) {
+            throw new Error(`Transaction simulation failed: ${JSON.stringify(simulationValue.err)}`);
+        }
+
+        const signedTransaction = await signTransactionMessageWithSigners(transactionWithSigner);
 
         const { result: signature, attempts } = await retryWithBackoff(
-            async () => this.sendTransaction(signedPayload),
+            async () => this.sendAndConfirmTransaction(signedTransaction),
             {
                 retries: appConfig.MAX_RETRIES,
                 baseDelayMs: appConfig.RETRY_BASE_DELAY_MS,
                 onRetry: (error, attempt, nextDelayMs) => {
-                    logger.warn("Retrying placeholder send", {
+                    logger.warn("Retrying sendAndConfirmTransaction", {
                         attempt,
                         nextDelayMs,
                         reason: String(error)
@@ -42,61 +70,53 @@ export class TransactionExecutor {
             }
         );
 
-        const confirmation = await this.confirmTransaction(signature);
-
         return {
             unsignedTransactionId: input.unsignedTransaction.unsignedTransactionId,
             signature,
-            simulated,
-            confirmed: confirmation.confirmed,
+            simulated: true,
+            confirmed: true,
             attempts,
-            slot: confirmation.slot,
+            slot: Number(simulationResponse.context.slot),
             explorerUrl: buildSolanaExplorerUrl(signature, "mainnet-beta"),
-            status: confirmation.confirmed ? "mock-confirmed" : "mock-submitted",
+            status: "confirmed",
             diagnostics: {
-                placeholder: true,
-                signedPayload,
-                idempotencyKey: input.idempotencyKey
+                idempotencyKey: input.idempotencyKey,
+                simulation: simulationValue,
+                latestBlockhash: input.unsignedTransaction.latestBlockhash,
+                requiredSignerAddress: input.unsignedTransaction.requiredSignerAddress
             }
         };
     }
 
-    private async simulateTransaction(input: ExecuteTransactionInput): Promise<boolean> {
-        logger.debug("Running placeholder simulation", {
-            unsignedTransactionId: input.unsignedTransaction.unsignedTransactionId
-        });
+    private async getHotWalletSigner() {
+        if (!this.hotWalletSignerPromise) {
+            this.hotWalletSignerPromise = loadKeypairSignerFromFile(appConfig.HOT_WALLET_PATH);
+        }
 
-        // TODO: Replace with RPC simulation using the assembled transaction.
-        return true;
+        return this.hotWalletSignerPromise;
     }
 
-    private async signTransaction(input: ExecuteTransactionInput): Promise<string> {
-        logger.debug("Running placeholder signing", {
-            walletPath: appConfig.HOT_WALLET_PATH
-        });
+    private async simulateTransaction(
+        transactionMessage: ExecuteTransactionInput["unsignedTransaction"]["transactionMessage"]
+    ) {
+        logger.debug("Simulating transaction before signing");
 
-        // TODO: Replace with gill/node signer integration and detached signature flow.
-        return `signed_payload_${input.unsignedTransaction.unsignedTransactionId}`;
+        return this.solanaClient.simulateTransaction(transactionMessage);
     }
 
-    private async sendTransaction(signedPayload: string): Promise<string> {
-        logger.debug("Running placeholder send", {
-            signedPayloadLength: signedPayload.length
+    private async sendAndConfirmTransaction(
+        signedTransaction: Awaited<ReturnType<typeof signTransactionMessageWithSigners>>
+    ): Promise<string> {
+        logger.debug("Sending signed transaction", {
+            signature: getSignatureFromTransaction(signedTransaction)
         });
 
-        // TODO: Replace with sendRawTransaction RPC flow and enhanced error mapping.
-        return createMockId("sig");
-    }
-
-    private async confirmTransaction(signature: string): Promise<{ confirmed: boolean; slot: number }> {
-        logger.debug("Running placeholder confirmation check", {
-            signature
+        const signature = await this.solanaClient.sendAndConfirmTransaction(signedTransaction, {
+            commitment: "confirmed",
+            maxRetries: BigInt(appConfig.MAX_RETRIES),
+            skipPreflight: false
         });
 
-        // TODO: Replace with blockhash strategy and commitment-based confirmation handling.
-        return {
-            confirmed: true,
-            slot: 0
-        };
+        return String(signature);
     }
 }
