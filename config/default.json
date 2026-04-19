@@ -1,0 +1,11 @@
+{
+  "appName": "gill-swap",
+  "cluster": "mainnet-beta",
+  "server": {
+    "healthRoute": "/health",
+    "apiPrefix": "/api/v1"
+  },
+  "monitor": {
+    "enabled": false
+  }
+}
