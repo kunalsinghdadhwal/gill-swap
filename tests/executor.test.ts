@@ -1,193 +1,179 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 
-import type { ExecuteTransactionInput } from "../src/types/index.js";
-
-const mockSimulateTransaction = jest.fn();
-const mockSendAndConfirmTransaction = jest.fn();
-const mockCreateSolanaClient = jest.fn(() => ({
-  simulateTransaction: mockSimulateTransaction,
-  sendAndConfirmTransaction: mockSendAndConfirmTransaction
-}));
-
-const mockAddSignersToTransactionMessage = jest.fn((_signers: unknown[], message: unknown) => ({
-  ...(message as Record<string, unknown>),
-  withSigner: true
-}));
-const mockSignTransactionMessageWithSigners = jest.fn(async (message: unknown) => ({
-  ...(message as Record<string, unknown>),
-  signed: true
-}));
-const mockGetSignatureFromTransaction = jest.fn(() => "pre-send-signature");
+const mockCreateSolanaClient = jest.fn();
+const mockAddSignersToTransactionMessage = jest.fn();
+const mockSignTransactionMessageWithSigners = jest.fn();
+const mockGetSignatureFromTransaction = jest.fn();
 
 const mockLoadKeypairSignerFromFile = jest.fn();
 
-jest.mock("../src/config/index.js", () => ({
-  appConfig: {
-    SOLANA_RPC_URL: "https://rpc.test.example",
-    HOT_WALLET_PATH: "/tmp/hot-wallet.json",
-    MAX_RETRIES: 2,
-    RETRY_BASE_DELAY_MS: 0
-  }
+jest.unstable_mockModule("gill", () => ({
+    createSolanaClient: mockCreateSolanaClient,
+    addSignersToTransactionMessage: mockAddSignersToTransactionMessage,
+    signTransactionMessageWithSigners: mockSignTransactionMessageWithSigners,
+    getSignatureFromTransaction: mockGetSignatureFromTransaction
 }));
 
-jest.mock("../src/utils/logger.js", () => ({
-  logger: {
-    info: jest.fn(),
-    debug: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn()
-  }
+jest.unstable_mockModule("gill/node", () => ({
+    loadKeypairSignerFromFile: mockLoadKeypairSignerFromFile
 }));
 
-jest.mock("gill", () => ({
-  createSolanaClient: mockCreateSolanaClient,
-  addSignersToTransactionMessage: mockAddSignersToTransactionMessage,
-  signTransactionMessageWithSigners: mockSignTransactionMessageWithSigners,
-  getSignatureFromTransaction: mockGetSignatureFromTransaction
-}));
+const { TransactionExecutor } = await import("../src/core/executor.js");
+const { appConfig } = await import("../src/config/index.js");
 
-jest.mock("gill/node", () => ({
-  loadKeypairSignerFromFile: mockLoadKeypairSignerFromFile
-}));
+const REQUIRED_SIGNER = "11111111111111111111111111111111";
 
-import { TransactionExecutor } from "../src/core/executor.js";
-
-function createExecuteInput(requiredSignerAddress = "Wallet111111111111111111111111111111111111"): ExecuteTransactionInput {
-  return {
-    idempotencyKey: "test-idempotency",
-    unsignedTransaction: {
-      unsignedTransactionId: "utx_123",
-      transactionMessage: {
-        version: "legacy",
-        feePayer: requiredSignerAddress,
-        instructions: []
-      } as ExecuteTransactionInput["unsignedTransaction"]["transactionMessage"],
-      instructionCount: 3,
-      requiredSignerAddress,
-      latestBlockhash: {
-        blockhash: "Blockhash1111111111111111111111111111111111",
-        lastValidBlockHeight: 123,
-        fetchedAt: Date.now()
-      },
-      metadata: {}
-    }
-  };
+function createExecuteInput(requiredSignerAddress = REQUIRED_SIGNER) {
+    return {
+        idempotencyKey: "test-idempotency",
+        unsignedTransaction: {
+            unsignedTransactionId: "utx_123",
+            transactionMessage: {
+                version: "legacy",
+                feePayer: { address: requiredSignerAddress },
+                instructions: []
+            },
+            instructionCount: 3,
+            requiredSignerAddress,
+            latestBlockhash: {
+                blockhash: "Blockhash1111111111111111111111111111111111",
+                lastValidBlockHeight: 123,
+                fetchedAt: Date.now()
+            },
+            metadata: {}
+        }
+    };
 }
 
 describe("TransactionExecutor", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+    const mockSimulateTransaction = jest.fn();
+    const mockSendAndConfirmTransaction = jest.fn();
 
-    mockLoadKeypairSignerFromFile.mockResolvedValue({
-      address: "Wallet111111111111111111111111111111111111"
+    beforeEach(() => {
+        jest.clearAllMocks();
+
+        mockCreateSolanaClient.mockReturnValue({
+            simulateTransaction: mockSimulateTransaction,
+            sendAndConfirmTransaction: mockSendAndConfirmTransaction
+        });
+
+        mockLoadKeypairSignerFromFile.mockResolvedValue({
+            address: REQUIRED_SIGNER
+        });
+
+        mockAddSignersToTransactionMessage.mockImplementation((_, txMessage: unknown) => txMessage);
+
+        mockSignTransactionMessageWithSigners.mockResolvedValue({
+            fakeSigned: true
+        });
+
+        mockGetSignatureFromTransaction.mockReturnValue("pre-send-signature");
+
+        mockSimulateTransaction.mockResolvedValue({
+            context: { slot: 777n },
+            value: { err: null, logs: ["ok"] }
+        });
+
+        mockSendAndConfirmTransaction.mockResolvedValue("final-chain-signature");
     });
 
-    mockSimulateTransaction.mockResolvedValue({
-      context: { slot: 777n },
-      value: { err: null, logs: ["ok"] }
+    it("simulates, signs, sends, and confirms on the happy path", async () => {
+        const executor = new TransactionExecutor();
+
+        const result = await executor.executeTransaction(createExecuteInput());
+
+        expect(mockLoadKeypairSignerFromFile).toHaveBeenCalled();
+        expect(mockAddSignersToTransactionMessage).toHaveBeenCalledTimes(1);
+        expect(mockSignTransactionMessageWithSigners).toHaveBeenCalledTimes(1);
+        expect(mockSendAndConfirmTransaction).toHaveBeenCalledWith(expect.anything(), {
+            commitment: "confirmed",
+            maxRetries: BigInt(appConfig.MAX_RETRIES),
+            skipPreflight: false
+        });
+
+        expect(result.signature).toBe("final-chain-signature");
+        expect(result.status).toBe("confirmed");
+        expect(result.simulated).toBe(true);
+        expect(result.confirmed).toBe(true);
+        expect(result.attempts).toBe(1);
+        expect(result.slot).toBe(777);
+        expect(result.explorerUrl).toContain("final-chain-signature");
     });
 
-    mockSendAndConfirmTransaction.mockResolvedValue("final-chain-signature");
-  });
+    it("throws when simulation returns an error", async () => {
+        mockSimulateTransaction.mockResolvedValueOnce({
+            context: { slot: 7n },
+            value: {
+                err: { InstructionError: [0, "Custom"] },
+                logs: ["error"]
+            }
+        });
 
-  it("simulates, signs, sends, and confirms on the happy path", async () => {
-    const executor = new TransactionExecutor();
-    const input = createExecuteInput();
+        const executor = new TransactionExecutor();
 
-    const result = await executor.executeTransaction(input);
+        await expect(executor.executeTransaction(createExecuteInput())).rejects.toThrow(
+            "Transaction simulation failed"
+        );
 
-    expect(mockLoadKeypairSignerFromFile).toHaveBeenCalledWith("/tmp/hot-wallet.json");
-    expect(mockAddSignersToTransactionMessage).toHaveBeenCalledTimes(1);
-    expect(mockSignTransactionMessageWithSigners).toHaveBeenCalledTimes(1);
-    expect(mockSendAndConfirmTransaction).toHaveBeenCalledWith(expect.anything(), {
-      commitment: "confirmed",
-      maxRetries: 2n,
-      skipPreflight: false
+        expect(mockSignTransactionMessageWithSigners).not.toHaveBeenCalled();
+        expect(mockSendAndConfirmTransaction).not.toHaveBeenCalled();
     });
 
-    expect(result.signature).toBe("final-chain-signature");
-    expect(result.status).toBe("confirmed");
-    expect(result.simulated).toBe(true);
-    expect(result.confirmed).toBe(true);
-    expect(result.attempts).toBe(1);
-    expect(result.slot).toBe(777);
-    expect(result.explorerUrl).toContain("final-chain-signature");
-  });
+    it("throws when wallet signer does not match required signer", async () => {
+        mockLoadKeypairSignerFromFile.mockResolvedValueOnce({
+            address: "SysvarRent111111111111111111111111111111111"
+        });
 
-  it("throws when simulation returns an error", async () => {
-    mockSimulateTransaction.mockResolvedValueOnce({
-      context: { slot: 7n },
-      value: {
-        err: { InstructionError: [0, "Custom"] },
-        logs: ["error"]
-      }
+        const executor = new TransactionExecutor();
+
+        await expect(executor.executeTransaction(createExecuteInput())).rejects.toThrow(
+            "does not match required swap signer"
+        );
+
+        expect(mockSimulateTransaction).not.toHaveBeenCalled();
     });
 
-    const executor = new TransactionExecutor();
+    it("propagates wallet loading errors", async () => {
+        mockLoadKeypairSignerFromFile.mockRejectedValueOnce(new Error("wallet not found"));
 
-    await expect(executor.executeTransaction(createExecuteInput())).rejects.toThrow(
-      "Transaction simulation failed"
-    );
+        const executor = new TransactionExecutor();
 
-    expect(mockSignTransactionMessageWithSigners).not.toHaveBeenCalled();
-    expect(mockSendAndConfirmTransaction).not.toHaveBeenCalled();
-  });
-
-  it("throws when wallet signer does not match required signer", async () => {
-    mockLoadKeypairSignerFromFile.mockResolvedValueOnce({
-      address: "DifferentSigner11111111111111111111111111111111"
+        await expect(executor.executeTransaction(createExecuteInput())).rejects.toThrow("wallet not found");
     });
 
-    const executor = new TransactionExecutor();
+    it("retries sendAndConfirmTransaction and eventually succeeds", async () => {
+        mockSendAndConfirmTransaction
+            .mockRejectedValueOnce(new Error("temporary failure #1"))
+            .mockRejectedValueOnce(new Error("temporary failure #2"))
+            .mockResolvedValueOnce("signature-after-retries");
 
-    await expect(executor.executeTransaction(createExecuteInput())).rejects.toThrow(
-      "does not match required swap signer"
-    );
+        const executor = new TransactionExecutor();
 
-    expect(mockSimulateTransaction).not.toHaveBeenCalled();
-  });
+        const result = await executor.executeTransaction(createExecuteInput());
 
-  it("propagates wallet loading errors", async () => {
-    mockLoadKeypairSignerFromFile.mockRejectedValueOnce(new Error("wallet not found"));
+        expect(mockSendAndConfirmTransaction).toHaveBeenCalledTimes(3);
+        expect(result.signature).toBe("signature-after-retries");
+        expect(result.attempts).toBe(3);
+    });
 
-    const executor = new TransactionExecutor();
+    it("fails after retry budget is exhausted", async () => {
+        mockSendAndConfirmTransaction.mockRejectedValue(new Error("permanent send failure"));
 
-    await expect(executor.executeTransaction(createExecuteInput())).rejects.toThrow("wallet not found");
-  });
+        const executor = new TransactionExecutor();
 
-  it("retries sendAndConfirmTransaction and eventually succeeds", async () => {
-    mockSendAndConfirmTransaction
-      .mockRejectedValueOnce(new Error("temporary failure #1"))
-      .mockRejectedValueOnce(new Error("temporary failure #2"))
-      .mockResolvedValueOnce("signature-after-retries");
+        await expect(executor.executeTransaction(createExecuteInput())).rejects.toThrow(
+            "permanent send failure"
+        );
 
-    const executor = new TransactionExecutor();
+        expect(mockSendAndConfirmTransaction).toHaveBeenCalledTimes(appConfig.MAX_RETRIES + 1);
+    });
 
-    const result = await executor.executeTransaction(createExecuteInput());
+    it("caches the hot wallet signer between executions", async () => {
+        const executor = new TransactionExecutor();
 
-    expect(mockSendAndConfirmTransaction).toHaveBeenCalledTimes(3);
-    expect(result.signature).toBe("signature-after-retries");
-    expect(result.attempts).toBe(3);
-  });
+        await executor.executeTransaction(createExecuteInput());
+        await executor.executeTransaction(createExecuteInput());
 
-  it("fails after retry budget is exhausted", async () => {
-    mockSendAndConfirmTransaction.mockRejectedValue(new Error("permanent send failure"));
-
-    const executor = new TransactionExecutor();
-
-    await expect(executor.executeTransaction(createExecuteInput())).rejects.toThrow(
-      "permanent send failure"
-    );
-
-    expect(mockSendAndConfirmTransaction).toHaveBeenCalledTimes(3);
-  });
-
-  it("caches the hot wallet signer between executions", async () => {
-    const executor = new TransactionExecutor();
-
-    await executor.executeTransaction(createExecuteInput());
-    await executor.executeTransaction(createExecuteInput());
-
-    expect(mockLoadKeypairSignerFromFile).toHaveBeenCalledTimes(1);
-  });
+        expect(mockLoadKeypairSignerFromFile).toHaveBeenCalledTimes(1);
+    });
 });

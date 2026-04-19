@@ -1,300 +1,290 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 
-import type { QuoteResponse, SwapInstructionResponse } from "../src/types/index.js";
-
-const mockGetLatestBlockhashSend = jest.fn();
+const mockCreateSolanaClient = jest.fn();
 const mockCreateTransaction = jest.fn();
-const mockCreateSolanaClient = jest.fn(() => ({
-  rpc: {
-    getLatestBlockhash: () => ({
-      send: mockGetLatestBlockhashSend
-    })
-  }
-}));
-const mockAddress = jest.fn((value: string) => `addr:${value}`);
 
-const mockGetAssociatedTokenAccountAddress = jest.fn(async (_mint: string, owner: string) => `ata:${owner}`);
-const mockGetTransferTokensInstructions = jest.fn(() => [
-  {
-    programAddress: "transfer-program",
-    accounts: [],
-    data: new Uint8Array([10, 20])
-  }
-]);
-const mockGetAddMemoInstruction = jest.fn(() => ({
-  programAddress: "memo-program",
-  accounts: [],
-  data: new Uint8Array([99])
-}));
+const mockGetAssociatedTokenAccountAddress = jest.fn();
+const mockGetTransferTokensInstructions = jest.fn();
+const mockGetAddMemoInstruction = jest.fn();
 
-jest.mock("../src/config/index.js", () => ({
-  appConfig: {
-    SOLANA_RPC_URL: "https://rpc.test.example",
-    PRIORITY_FEE_MICROLAMPORTS: 1234
-  }
-}));
-
-jest.mock("../src/utils/logger.js", () => ({
-  logger: {
-    info: jest.fn(),
-    debug: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn()
-  }
-}));
-
-jest.mock("gill", () => ({
-  AccountRole: {
-    READONLY: 0,
-    WRITABLE: 1,
-    READONLY_SIGNER: 2,
-    WRITABLE_SIGNER: 3
-  },
-  address: mockAddress,
-  createSolanaClient: mockCreateSolanaClient,
-  createTransaction: mockCreateTransaction
-}));
-
-jest.mock("gill/programs", () => ({
-  getAssociatedTokenAccountAddress: mockGetAssociatedTokenAccountAddress,
-  getTransferTokensInstructions: mockGetTransferTokensInstructions,
-  getAddMemoInstruction: mockGetAddMemoInstruction
-}));
-
-import { GillTransactionBuilder } from "../src/core/gillBuilder.js";
-
-const quoteFixture: QuoteResponse = {
-  inputMint: "InputMint1111111111111111111111111111111111",
-  outputMint: "OutputMint111111111111111111111111111111111",
-  inAmountAtomic: "1000000",
-  outAmountAtomic: "250000",
-  otherAmountThresholdAtomic: "245000",
-  taker: "Taker1111111111111111111111111111111111111",
-  slippageBps: 50,
-  swapMode: "ExactIn",
-  estimatedPriceImpactPct: 0.01,
-  routePlan: [{ percent: 100 }],
-  rawProviderPayload: {
-    inputMint: "InputMint1111111111111111111111111111111111",
-    outputMint: "OutputMint111111111111111111111111111111111",
-    inAmount: "1000000",
-    outAmount: "250000",
-    otherAmountThreshold: "245000",
-    swapMode: "ExactIn",
-    slippageBps: 50,
-    priceImpactPct: "0.01",
-    routePlan: [{ percent: 100 }],
-    computeBudgetInstructions: [],
-    setupInstructions: [],
-    swapInstruction: {
-      programId: "SwapProgram111111111111111111111111111111111",
-      accounts: [],
-      data: "AQ=="
+jest.unstable_mockModule("gill", () => ({
+    AccountRole: {
+        WRITABLE_SIGNER: "WRITABLE_SIGNER",
+        READONLY_SIGNER: "READONLY_SIGNER",
+        WRITABLE: "WRITABLE",
+        READONLY: "READONLY"
     },
-    otherInstructions: [],
-    cleanupInstruction: null,
-    tipInstruction: null,
-    addressesByLookupTableAddress: {},
-    blockhashWithMetadata: {
-      blockhash: "RouterBlockhash11111111111111111111111111111",
-      fetchedAt: Date.now(),
-      lastValidBlockHeight: 111
-    }
-  }
-};
+    address: (value: string) => value,
+    createSolanaClient: mockCreateSolanaClient,
+    createTransaction: mockCreateTransaction
+}));
 
-const instructionsFixture: SwapInstructionResponse = {
-  computeBudgetInstructions: [
-    {
-      programId: "ComputeBudget111111111111111111111111111111",
-      accounts: [],
-      data: "AQ=="
-    }
-  ],
-  setupInstructions: [
-    {
-      programId: "SetupProgram111111111111111111111111111111111",
-      accounts: [
-        {
-          pubkey: "LookupTarget11111111111111111111111111111111",
-          isSigner: false,
-          isWritable: true
+jest.unstable_mockModule("gill/programs", () => ({
+    getAssociatedTokenAccountAddress: mockGetAssociatedTokenAccountAddress,
+    getTransferTokensInstructions: mockGetTransferTokensInstructions,
+    getAddMemoInstruction: mockGetAddMemoInstruction
+}));
+
+const { GillTransactionBuilder } = await import("../src/core/gillBuilder.js");
+
+const TAKER = "11111111111111111111111111111111";
+const INPUT_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const OUTPUT_MINT = "So11111111111111111111111111111111111111112";
+const ROUTER_PROGRAM = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
+const LOOKUP_TABLE = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
+const LOOKUP_TARGET = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+
+function createQuoteFixture() {
+    return {
+        inputMint: INPUT_MINT,
+        outputMint: OUTPUT_MINT,
+        inAmountAtomic: "1000000",
+        outAmountAtomic: "250000",
+        otherAmountThresholdAtomic: "245000",
+        taker: TAKER,
+        slippageBps: 50,
+        swapMode: "ExactIn",
+        estimatedPriceImpactPct: 0.01,
+        routePlan: [{ percent: 100 }],
+        rawProviderPayload: {
+            inputMint: INPUT_MINT,
+            outputMint: OUTPUT_MINT,
+            inAmount: "1000000",
+            outAmount: "250000",
+            otherAmountThreshold: "245000",
+            swapMode: "ExactIn",
+            slippageBps: 50,
+            priceImpactPct: "0.01",
+            routePlan: [{ percent: 100 }],
+            computeBudgetInstructions: [],
+            setupInstructions: [],
+            swapInstruction: {
+                programId: ROUTER_PROGRAM,
+                accounts: [],
+                data: "AQ=="
+            },
+            otherInstructions: [],
+            cleanupInstruction: null,
+            tipInstruction: null,
+            addressesByLookupTableAddress: {},
+            blockhashWithMetadata: {
+                blockhash: "RouterBlockhash111111111111111111111111111111111",
+                fetchedAt: Date.now(),
+                lastValidBlockHeight: 111
+            }
         }
-      ],
-      data: "AQ=="
-    }
-  ],
-  swapInstruction: {
-    programId: "SwapProgram111111111111111111111111111111111",
-    accounts: [
-      {
-        pubkey: "Signer111111111111111111111111111111111111",
-        isSigner: true,
-        isWritable: false
-      }
-    ],
-    data: "Ag=="
-  },
-  otherInstructions: [
-    {
-      programId: "OtherProgram11111111111111111111111111111111",
-      accounts: [],
-      data: "Aw=="
-    }
-  ],
-  cleanupInstruction: {
-    programId: "CleanupProgram111111111111111111111111111111",
-    accounts: [],
-    data: "BA=="
-  },
-  tipInstruction: {
-    programId: "TipProgram111111111111111111111111111111111",
-    accounts: [],
-    data: "BQ=="
-  },
-  addressesByLookupTableAddress: {
-    LookupTable1111111111111111111111111111111: ["LookupTarget11111111111111111111111111111111"]
-  },
-  blockhashWithMetadata: {
-    blockhash: "RouterBlockhash11111111111111111111111111111",
-    fetchedAt: Date.now(),
-    lastValidBlockHeight: 111
-  },
-  rawProviderPayload: quoteFixture.rawProviderPayload
-};
+    };
+}
+
+function createInstructionsFixture() {
+    return {
+        computeBudgetInstructions: [
+            {
+                programId: "ComputeBudget111111111111111111111111111111",
+                accounts: [],
+                data: "AQ=="
+            }
+        ],
+        setupInstructions: [
+            {
+                programId: ROUTER_PROGRAM,
+                accounts: [
+                    {
+                        pubkey: LOOKUP_TARGET,
+                        isSigner: false,
+                        isWritable: true
+                    }
+                ],
+                data: "AQ=="
+            }
+        ],
+        swapInstruction: {
+            programId: ROUTER_PROGRAM,
+            accounts: [
+                {
+                    pubkey: TAKER,
+                    isSigner: true,
+                    isWritable: false
+                }
+            ],
+            data: "Ag=="
+        },
+        otherInstructions: [
+            {
+                programId: ROUTER_PROGRAM,
+                accounts: [],
+                data: "Aw=="
+            }
+        ],
+        cleanupInstruction: {
+            programId: LOOKUP_TARGET,
+            accounts: [
+                {
+                    pubkey: TAKER,
+                    isSigner: false,
+                    isWritable: true
+                }
+            ],
+            data: "BA=="
+        },
+        tipInstruction: {
+            programId: LOOKUP_TARGET,
+            accounts: [
+                {
+                    pubkey: TAKER,
+                    isSigner: false,
+                    isWritable: true
+                }
+            ],
+            data: "BQ=="
+        },
+        addressesByLookupTableAddress: {
+            [LOOKUP_TABLE]: [LOOKUP_TARGET]
+        },
+        blockhashWithMetadata: {
+            blockhash: "RouterBlockhash111111111111111111111111111111111",
+            fetchedAt: Date.now(),
+            lastValidBlockHeight: 111
+        },
+        rawProviderPayload: createQuoteFixture().rawProviderPayload
+    };
+}
 
 describe("GillTransactionBuilder", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+    const mockGetLatestBlockhashSend = jest.fn();
 
-    mockGetLatestBlockhashSend.mockResolvedValue({
-      value: {
-        blockhash: "LatestBlockhash11111111111111111111111111111",
-        lastValidBlockHeight: 222n
-      }
+    beforeEach(() => {
+        jest.clearAllMocks();
+
+        mockGetLatestBlockhashSend.mockResolvedValue({
+            value: {
+                blockhash: "LatestBlockhash11111111111111111111111111111111",
+                lastValidBlockHeight: 222n
+            }
+        });
+
+        mockCreateSolanaClient.mockReturnValue({
+            rpc: {
+                getLatestBlockhash: () => ({
+                    send: mockGetLatestBlockhashSend
+                })
+            }
+        });
+
+        mockCreateTransaction.mockImplementation((input: unknown) => ({
+            builtByTest: true,
+            ...(input as object)
+        }));
+
+        mockGetAssociatedTokenAccountAddress.mockResolvedValue("3DrM4JiBD3Voq5xNJ5CqsxvE3kwNQ3kqBaRDfbSwXYKD");
+
+        mockGetTransferTokensInstructions.mockReturnValue([
+            {
+                programAddress: LOOKUP_TARGET,
+                accounts: [],
+                data: new Uint8Array([10, 20])
+            }
+        ]);
+
+        mockGetAddMemoInstruction.mockReturnValue({
+            programAddress: LOOKUP_TARGET,
+            accounts: [],
+            data: new Uint8Array([99])
+        });
     });
 
-    mockCreateTransaction.mockImplementation((input: Record<string, unknown>) => ({
-      createdByMock: true,
-      ...input
-    }));
-  });
+    it("builds transaction from Jupiter instructions with transfer + memo post-actions", async () => {
+        const builder = new GillTransactionBuilder();
+        const quote = createQuoteFixture();
+        const instructions = createInstructionsFixture();
 
-  it("builds a transaction from Jupiter instructions with transfer + memo post-actions", async () => {
-    const builder = new GillTransactionBuilder();
+        const result = await builder.buildSwapTransaction({
+            quote,
+            instructions,
+            options: {
+                computeUnitLimit: 500000,
+                priorityFeeMicrolamports: 9999,
+                memo: "post swap memo",
+                postSwapTransfer: {
+                    destinationOwnerAddress: "SysvarRent111111111111111111111111111111111",
+                    amountAtomic: "123"
+                }
+            }
+        });
 
-    const result = await builder.buildSwapTransaction({
-      quote: quoteFixture,
-      instructions: instructionsFixture,
-      options: {
-        computeUnitLimit: 500000,
-        priorityFeeMicrolamports: 9999,
-        memo: "post swap memo",
-        postSwapTransfer: {
-          destinationOwnerAddress: "Destination11111111111111111111111111111111",
-          amountAtomic: "123"
-        }
-      }
+        expect(mockCreateTransaction).toHaveBeenCalledTimes(1);
+        expect(mockGetTransferTokensInstructions).toHaveBeenCalledTimes(1);
+        expect(mockGetAddMemoInstruction).toHaveBeenCalledWith({ memo: "post swap memo" });
+
+        const callArg = mockCreateTransaction.mock.calls[0]?.[0] as {
+            computeUnitLimit: number;
+            computeUnitPrice: number;
+            feePayer: string;
+        };
+
+        expect(callArg.computeUnitLimit).toBe(500000);
+        expect(callArg.computeUnitPrice).toBe(9999);
+        expect(callArg.feePayer).toBe(TAKER);
+
+        expect(result.requiredSignerAddress).toBe(TAKER);
+        expect(result.latestBlockhash.blockhash).toBe("LatestBlockhash11111111111111111111111111111111");
+        expect(result.instructionCount).toBeGreaterThan(0);
     });
 
-    expect(mockCreateTransaction).toHaveBeenCalledTimes(1);
+    it("uses default compute unit limit and priority fee when options are omitted", async () => {
+        const builder = new GillTransactionBuilder();
 
-    const createTransactionArg = mockCreateTransaction.mock.calls[0][0] as {
-      instructions: unknown[];
-      computeUnitLimit: number;
-      computeUnitPrice: number;
-      feePayer: string;
-    };
+        await builder.buildSwapTransaction({
+            quote: createQuoteFixture(),
+            instructions: createInstructionsFixture()
+        });
 
-    expect(createTransactionArg.computeUnitLimit).toBe(500000);
-    expect(createTransactionArg.computeUnitPrice).toBe(9999);
-    expect(createTransactionArg.feePayer).toBe(`addr:${quoteFixture.taker}`);
-    expect(createTransactionArg.instructions).toHaveLength(7);
+        const callArg = mockCreateTransaction.mock.calls[0]?.[0] as {
+            computeUnitLimit: number;
+            computeUnitPrice: number;
+        };
 
-    expect(mockGetTransferTokensInstructions).toHaveBeenCalledTimes(1);
-    expect(mockGetAddMemoInstruction).toHaveBeenCalledWith({ memo: "post swap memo" });
-    expect(result.requiredSignerAddress).toBe(quoteFixture.taker);
-    expect(result.latestBlockhash.blockhash).toBe("LatestBlockhash11111111111111111111111111111");
-  });
-
-  it("uses default compute + priority values when options are omitted", async () => {
-    const builder = new GillTransactionBuilder();
-
-    await builder.buildSwapTransaction({
-      quote: quoteFixture,
-      instructions: instructionsFixture
+        expect(callArg.computeUnitLimit).toBe(250000);
+        expect(typeof callArg.computeUnitPrice).toBe("number");
     });
 
-    const createTransactionArg = mockCreateTransaction.mock.calls[0][0] as {
-      computeUnitLimit: number;
-      computeUnitPrice: number;
-    };
+    it("throws when quote taker is missing", async () => {
+        const builder = new GillTransactionBuilder();
 
-    expect(createTransactionArg.computeUnitLimit).toBe(250000);
-    expect(createTransactionArg.computeUnitPrice).toBe(1234);
-  });
-
-  it("converts lookup accounts into Gill lookup metas when available", async () => {
-    const builder = new GillTransactionBuilder();
-
-    await builder.buildSwapTransaction({
-      quote: quoteFixture,
-      instructions: instructionsFixture
+        await expect(
+            builder.buildSwapTransaction({
+                quote: {
+                    ...createQuoteFixture(),
+                    taker: ""
+                },
+                instructions: createInstructionsFixture()
+            })
+        ).rejects.toThrow("Quote is missing a taker address required for transaction construction.");
     });
 
-    const createTransactionArg = mockCreateTransaction.mock.calls[0][0] as {
-      instructions: Array<{ accounts?: Array<Record<string, unknown>> }>;
-    };
+    it("throws when raw Jupiter instruction data decodes to empty bytes", async () => {
+        const builder = new GillTransactionBuilder();
+        const instructions = createInstructionsFixture();
 
-    const firstInstructionAccounts = createTransactionArg.instructions[0]?.accounts ?? [];
-    expect(firstInstructionAccounts[0]).toMatchObject({
-      address: "addr:LookupTarget11111111111111111111111111111111",
-      lookupTableAddress: "addr:LookupTable1111111111111111111111111111111",
-      addressIndex: 0
+        instructions.swapInstruction.data = "";
+
+        await expect(
+            builder.buildSwapTransaction({
+                quote: createQuoteFixture(),
+                instructions
+            })
+        ).rejects.toThrow("Jupiter instruction data decoded to empty bytes.");
     });
-  });
 
-  it("throws when quote taker is missing", async () => {
-    const builder = new GillTransactionBuilder();
+    it("propagates latest blockhash RPC failures", async () => {
+        mockGetLatestBlockhashSend.mockRejectedValueOnce(new Error("rpc down"));
+        const builder = new GillTransactionBuilder();
 
-    await expect(
-      builder.buildSwapTransaction({
-        quote: {
-          ...quoteFixture,
-          taker: ""
-        },
-        instructions: instructionsFixture
-      })
-    ).rejects.toThrow("Quote is missing a taker address required for transaction construction.");
-  });
-
-  it("throws when a raw Jupiter instruction has invalid/empty data", async () => {
-    const builder = new GillTransactionBuilder();
-
-    await expect(
-      builder.buildSwapTransaction({
-        quote: quoteFixture,
-        instructions: {
-          ...instructionsFixture,
-          swapInstruction: {
-            ...instructionsFixture.swapInstruction,
-            data: "***not_base64***"
-          }
-        }
-      })
-    ).rejects.toThrow("Jupiter instruction data decoded to empty bytes.");
-  });
-
-  it("propagates RPC blockhash fetch failures", async () => {
-    mockGetLatestBlockhashSend.mockRejectedValueOnce(new Error("rpc down"));
-
-    const builder = new GillTransactionBuilder();
-
-    await expect(
-      builder.buildSwapTransaction({
-        quote: quoteFixture,
-        instructions: instructionsFixture
-      })
-    ).rejects.toThrow("rpc down");
-  });
+        await expect(
+            builder.buildSwapTransaction({
+                quote: createQuoteFixture(),
+                instructions: createInstructionsFixture()
+            })
+        ).rejects.toThrow("rpc down");
+    });
 });

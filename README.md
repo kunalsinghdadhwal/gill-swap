@@ -1,97 +1,82 @@
 # gill-swap
 
-Backend-only TypeScript Node.js scaffold for a Solana swap automation engine.
+Backend-only TypeScript Node.js service for Solana swap automation using Jupiter Router + Gill.
 
-This project is intentionally boilerplate-first and production-oriented in structure. It uses:
+The project supports two runtime modes:
 
-- Gill SDK as the planned on-chain transaction builder/signing stack (placeholder integration points included)
-- Jupiter Aggregator as the planned quote + swap-instruction provider (placeholder integration points included)
-- Commander for CLI usage
-- Fastify for a lightweight HTTP API
+- CLI mode for one-off swaps and scheduled DCA runs
+- Server mode with Fastify API endpoints
 
-No frontend code is included.
+## Current Status
 
-## Features
+Implemented now:
 
-- Clean layered architecture (`config`, `core`, `types`, `utils`, `cli`, `server`, `monitor`)
-- Strict TypeScript setup for backend services
-- Zod-validated environment configuration
-- Structured Winston logging
-- Reusable retry utility for send/confirm pipelines
-- CLI commands for `swap` and `dca` (placeholder behavior)
-- Optional Fastify HTTP server mode
+- Real Jupiter Router build requests via `GET /swap/v2/build`
+- Real conversion of Jupiter raw instructions into Gill transaction instructions
+- Real transaction execution lifecycle: simulate -> sign -> send+confirm with retry/backoff
+- Zod-validated config and request payloads
+- Jest test suite for `jupiter`, `gillBuilder`, and `executor`
 
-## Project Structure
+Not fully implemented yet:
 
-```text
-.
-├── src/
-│   ├── config/
-│   │   ├── index.ts
-│   │   └── schema.ts
-│   ├── core/
-│   │   ├── jupiter.ts
-│   │   ├── gillBuilder.ts
-│   │   └── executor.ts
-│   ├── types/
-│   │   └── index.ts
-│   ├── utils/
-│   │   ├── logger.ts
-│   │   ├── retry.ts
-│   │   └── helpers.ts
-│   ├── cli/
-│   │   ├── index.ts
-│   │   └── commands/
-│   │       ├── swap.ts
-│   │       └── dca.ts
-│   ├── server/
-│   │   └── index.ts
-│   ├── monitor/
-│   │   └── priceMonitor.ts
-│   └── index.ts
-├── config/
-│   └── default.json
-├── .env.example
-├── .env
-├── package.json
-├── tsconfig.json
-├── README.md
-├── .gitignore
-└── .eslintrc.json
-```
+- HTTP DCA endpoint (`POST /api/v1/dca` returns `501`)
+- Price monitor logic (scheduler skeleton exists in `src/monitor/priceMonitor.ts`)
 
-## Architecture Overview
+## Architecture
 
 ```mermaid
-flowchart TD
-  A[src/index.ts - composition root] --> B[config layer]
-  A --> C[cli layer]
-  A --> D[server layer]
-  C --> E[core/jupiter.ts]
-  C --> F[core/gillBuilder.ts]
-  C --> G[core/executor.ts]
+---
+config:
+  layout: elk
+---
+flowchart LR
+  A[src/index.ts\ncomposition root] --> B{Runtime Mode}
+  B -->|cli| C[src/cli]
+  B -->|server| D[src/server]
+
+  C --> E[src/core/jupiter.ts]
+  C --> F[src/core/gillBuilder.ts]
+  C --> G[src/core/executor.ts]
+
   D --> E
   D --> F
   D --> G
-  E --> H[Jupiter API - planned]
-  F --> I[Gill SDK - planned]
-  G --> J[Solana RPC - planned]
-  K[types layer] --> C
+
+  E --> H[Jupiter Router API\n/swap/v2/build]
+  F --> I["Gill SDK\ngill + gill/programs"]
+  G --> J["Solana RPC\n(simulate/send/confirm)"]
+
+  K[src/config + src/types + src/utils] --> C
   K --> D
-  K --> E
-  K --> F
-  K --> G
-  L[utils layer] --> C
-  L --> D
-  L --> E
-  L --> F
-  L --> G
-  M[monitor layer] --> E
+  M[src/monitor/priceMonitor.ts\nplaceholder scheduler] --> E
 ```
 
-## Getting Started
+### Swap Execution Flow
 
-### 1) Install dependencies (pnpm only)
+```mermaid
+sequenceDiagram
+  autonumber
+  participant CLI as CLI or HTTP
+  participant J as JupiterClient
+  participant B as GillTransactionBuilder
+  participant X as TransactionExecutor
+  participant R as Solana RPC
+
+  CLI->>J: getQuote(payload)
+  J->>J: call /swap/v2/build
+  J-->>CLI: quote + raw instructions
+  CLI->>B: buildSwapTransaction(quote, instructions)
+  B->>R: getLatestBlockhash
+  B-->>CLI: unsigned transaction message
+  CLI->>X: executeTransaction(unsigned)
+  X->>R: simulateTransaction
+  X->>R: sendAndConfirmTransaction (with retries)
+  X-->>CLI: signature + diagnostics
+```
+
+## Setup
+
+### 1) Install
 
 ```bash
 pnpm install
@@ -99,7 +84,21 @@ pnpm install
 
 ### 2) Configure environment
 
-Update `.env` as needed (placeholder defaults are included).
+Create or update `.env`.
+
+Important variables:
+
+- `SOLANA_RPC_URL` (required)
+- `HOT_WALLET_PATH` (required)
+- `JUPITER_API_KEY` (required at runtime by `JupiterClient`)
+- `JUPITER_API_BASE_URL` (default: `https://quote-api.jup.ag/v6`)
+- `DEFAULT_SLIPPAGE_BPS` (default: `50`)
+- `PRIORITY_FEE_MICROLAMPORTS` (default: `0`)
+- `MAX_RETRIES` (default: `3`)
+- `RETRY_BASE_DELAY_MS` (default: `350`)
+- `REQUEST_TIMEOUT_MS` (default: `10000`)
+- `APP_MODE` (`cli` or `server`, default: `cli`)
+- `HOST`/`PORT` (default: `0.0.0.0:3000`)
 
 ### 3) Build
 
@@ -107,54 +106,91 @@ Update `.env` as needed (placeholder defaults are included).
 pnpm build
 ```
 
-### 4) Run in server mode
+## Running the Project
+
+### Server Mode
 
 ```bash
 pnpm dev
 ```
 
-Or compiled mode:
+or:
+
+```bash
+pnpm server
+```
+
+Compiled run:
 
 ```bash
 pnpm build
 pnpm start
 ```
 
-### 5) Run CLI commands
+### API Docs (Scalar)
 
-Swap command:
+When the server is running, open:
+
+- `/docs` for the Scalar API reference UI (served by `@scalar/fastify-api-reference`)
+- `/openapi.json` for the OpenAPI document consumed by Scalar
+
+### CLI: Swap
+
+The swap command accepts token symbols (`SOL`, `WSOL`, `USDC`, `USDT`) or raw mint addresses.
+
+UI amount mode:
 
 ```bash
-pnpm swap -- --inputMint So11111111111111111111111111111111111111112 \
-  --outputMint EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \
-  --amountAtomic 1000000 \
-  --userPublicKey ExamplePublicKey11111111111111111111111111111111
+pnpm swap -- \
+  --input USDC \
+  --output SOL \
+  --amount 5 \
+  --userPublicKey <YOUR_PUBLIC_KEY>
 ```
 
-DCA command (single run):
+Atomic amount mode:
 
 ```bash
-pnpm dca -- --inputMint So11111111111111111111111111111111111111112 \
+pnpm swap -- \
+  --input EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \
+  --output So11111111111111111111111111111111111111112 \
+  --amount 0 \
+  --amountAtomic 5000000 \
+  --userPublicKey <YOUR_PUBLIC_KEY>
+```
+
+Notes:
+
+- If `--userPublicKey` is omitted, the CLI loads signer from `HOT_WALLET_PATH` and uses that address.
+- When using raw mint + UI amount, provide `--inputDecimals` or use `--amountAtomic`.
+
+### CLI: DCA
+
+Single execution:
+
+```bash
+pnpm dca -- \
+  --inputMint So11111111111111111111111111111111111111112 \
   --outputMint EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \
   --amountAtomic 1000000 \
-  --userPublicKey ExamplePublicKey11111111111111111111111111111111 \
+  --userPublicKey <YOUR_PUBLIC_KEY> \
   --runOnce
 ```
 
-## HTTP Endpoints
+Scheduled execution:
 
-- `GET /health`
-- `POST /api/v1/swap` (placeholder pipeline)
-- `POST /api/v1/dca` (not implemented placeholder)
+```bash
+pnpm dca -- \
+  --inputMint So11111111111111111111111111111111111111112 \
+  --outputMint EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \
+  --amountAtomic 1000000 \
+  --userPublicKey <YOUR_PUBLIC_KEY> \
+  --every "*/30 * * * * *" \
+  --maxRuns 10
+```
 
-## Notes
+## Operational Notes
 
-- Gill package/import mapping for implementation phase:
-  - Install dependency: `gill`
-  - Core APIs import path: `gill`
-  - Program helpers import path: `gill/programs`
-  - Node signer/runtime helpers import path: `gill/node`
-- Real Jupiter HTTP calls are intentionally not implemented yet.
-- Real Gill SDK transaction assembly/signing is intentionally not implemented yet.
-- Real Solana send/confirm lifecycle is intentionally not implemented yet.
-- Search for `TODO:` markers in `src/core` and `src/monitor` for integration points.
+- On-chain swaps can fail due to runtime conditions such as insufficient wallet funds, slippage, or transient RPC issues.
+- Executor retry behavior is controlled by `MAX_RETRIES` and `RETRY_BASE_DELAY_MS`.
+- `TransactionExecutor` enforces signer safety: wallet signer address must match quote taker address.
