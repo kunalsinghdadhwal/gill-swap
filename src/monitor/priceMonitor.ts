@@ -12,39 +12,39 @@ import { logger } from "../utils/logger.js";
  */
 
 export interface PriceMonitorOptions {
-  cronExpression?: string;
-  onTick?: () => Promise<void>;
+    cronExpression?: string;
+    onTick?: () => Promise<void>;
 }
 
 export class PriceMonitor {
-  private task: cron.ScheduledTask | undefined;
+    private task: cron.ScheduledTask | undefined;
 
-  public start(options: PriceMonitorOptions = {}): void {
-    const cronExpression = options.cronExpression ?? appConfig.PRICE_MONITOR_CRON;
+    public start(options: PriceMonitorOptions = {}): void {
+        const cronExpression = options.cronExpression ?? appConfig.PRICE_MONITOR_CRON;
 
-    if (this.task) {
-      logger.warn("Price monitor is already running.");
-      return;
+        if (this.task) {
+            logger.warn("Price monitor is already running.");
+            return;
+        }
+
+        this.task = cron.schedule(cronExpression, () => {
+            void (async () => {
+                logger.info("Price monitor tick (placeholder)");
+
+                // TODO: Add quote aggregation, threshold detection, and arbitrage hooks.
+                await options.onTick?.();
+            })().catch((error: unknown) => {
+                logger.error("Price monitor tick failed", { error: String(error) });
+            });
+        });
+
+        void this.task.start();
+        logger.info("Price monitor started", { cronExpression });
     }
 
-    this.task = cron.schedule(cronExpression, () => {
-      void (async () => {
-        logger.info("Price monitor tick (placeholder)");
-
-        // TODO: Add quote aggregation, threshold detection, and arbitrage hooks.
-        await options.onTick?.();
-      })().catch((error: unknown) => {
-        logger.error("Price monitor tick failed", { error: String(error) });
-      });
-    });
-
-    void this.task.start();
-    logger.info("Price monitor started", { cronExpression });
-  }
-
-  public stop(): void {
-    void this.task?.stop();
-    this.task = undefined;
-    logger.info("Price monitor stopped");
-  }
+    public stop(): void {
+        void this.task?.stop();
+        this.task = undefined;
+        logger.info("Price monitor stopped");
+    }
 }

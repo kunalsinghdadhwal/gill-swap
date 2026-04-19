@@ -16,23 +16,23 @@ import { logger } from "./utils/logger.js";
  */
 
 export async function bootstrap(argv: string[] = process.argv): Promise<void> {
-  const modeFromArgs = detectRuntimeMode(argv.slice(2));
-  const mode: RuntimeMode = modeFromArgs ?? appConfig.APP_MODE;
+    const modeFromArgs = detectRuntimeMode(argv.slice(2));
+    const mode: RuntimeMode = modeFromArgs ?? appConfig.APP_MODE;
 
-  if (mode === "server") {
-    await startServer();
-    return;
-  }
+    if (mode === "server") {
+        await startServer();
+        return;
+    }
 
-  await runCli(argv);
+    await runCli(argv);
 }
 
 const isDirectExecution =
-  process.argv[1] !== undefined && pathToFileURL(process.argv[1]).href === import.meta.url;
+    process.argv[1] !== undefined && pathToFileURL(process.argv[1]).href === import.meta.url;
 
 if (isDirectExecution) {
-  void bootstrap().catch((error: unknown) => {
-    logger.error("Fatal startup error", { error: String(error) });
-    process.exitCode = 1;
-  });
+    void bootstrap().catch((error: unknown) => {
+        logger.error("Fatal startup error", { error: String(error) });
+        process.exitCode = 1;
+    });
 }

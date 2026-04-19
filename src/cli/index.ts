@@ -17,27 +17,27 @@ import { registerSwapCommand } from "./commands/swap.js";
  */
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
-  const program = new Command();
+    const program = new Command();
 
-  const dependencies = {
-    jupiterClient: new JupiterClient(),
-    gillBuilder: new GillTransactionBuilder(),
-    executor: new TransactionExecutor()
-  };
+    const dependencies = {
+        jupiterClient: new JupiterClient(),
+        gillBuilder: new GillTransactionBuilder(),
+        executor: new TransactionExecutor()
+    };
 
-  program
-    .name("gill-swap")
-    .description("Backend-only swap automation scaffold using Gill + Jupiter architecture.")
-    .version("0.1.0")
-    .showHelpAfterError();
+    program
+        .name("gill-swap")
+        .description("Backend-only swap automation scaffold using Gill + Jupiter architecture.")
+        .version("0.1.0")
+        .showHelpAfterError();
 
-  registerSwapCommand(program, dependencies);
-  registerDcaCommand(program, dependencies);
+    registerSwapCommand(program, dependencies);
+    registerDcaCommand(program, dependencies);
 
-  logger.debug("Running CLI mode", {
-    appMode: appConfig.APP_MODE,
-    argv: argv.slice(2)
-  });
+    logger.debug("Running CLI mode", {
+        appMode: appConfig.APP_MODE,
+        argv: argv.slice(2)
+    });
 
-  await program.parseAsync(argv);
+    await program.parseAsync(argv);
 }

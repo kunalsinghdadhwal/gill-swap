@@ -17,66 +17,66 @@ import { logger } from "../../utils/logger.js";
  */
 
 export interface SwapPipelineDependencies {
-  jupiterClient: JupiterClient;
-  gillBuilder: GillTransactionBuilder;
-  executor: TransactionExecutor;
+    jupiterClient: JupiterClient;
+    gillBuilder: GillTransactionBuilder;
+    executor: TransactionExecutor;
 }
 
 export async function executeSwapPipeline(
-  payload: SwapRequestPayload,
-  dependencies: SwapPipelineDependencies,
-  source: string
+    payload: SwapRequestPayload,
+    dependencies: SwapPipelineDependencies,
+    source: string
 ): Promise<ExecutionResult> {
-  const quote = await dependencies.jupiterClient.getQuote(payload);
-  const instructions = await dependencies.jupiterClient.getSwapInstructions({
-    quote,
-    userPublicKey: payload.userPublicKey
-  });
-  const unsigned = await dependencies.gillBuilder.buildSwapTransaction({
-    quote,
-    instructions,
-    options: {
-      priorityFeeMicrolamports: appConfig.PRIORITY_FEE_MICROLAMPORTS
-    }
-  });
+    const quote = await dependencies.jupiterClient.getQuote(payload);
+    const instructions = await dependencies.jupiterClient.getSwapInstructions({
+        quote,
+        userPublicKey: payload.userPublicKey
+    });
+    const unsigned = await dependencies.gillBuilder.buildSwapTransaction({
+        quote,
+        instructions,
+        options: {
+            priorityFeeMicrolamports: appConfig.PRIORITY_FEE_MICROLAMPORTS
+        }
+    });
 
-  return dependencies.executor.executeTransaction({
-    unsignedTransaction: unsigned,
-    idempotencyKey: `${source}-${createMockId("idempotency")}`
-  });
+    return dependencies.executor.executeTransaction({
+        unsignedTransaction: unsigned,
+        idempotencyKey: `${source}-${createMockId("idempotency")}`
+    });
 }
 
 export function registerSwapCommand(program: Command, dependencies: SwapPipelineDependencies): void {
-  program
-    .command("swap")
-    .description("Run a single swap execution flow (placeholder).")
-    .requiredOption("--inputMint <mint>", "Input token mint address")
-    .requiredOption("--outputMint <mint>", "Output token mint address")
-    .requiredOption("--amountAtomic <value>", "Swap amount in atomic units")
-    .requiredOption("--userPublicKey <pubkey>", "User public key for instruction context")
-    .option("--slippageBps <value>", "Optional slippage bps override")
-    .action(async (options: {
-      inputMint: string;
-      outputMint: string;
-      amountAtomic: string;
-      userPublicKey: string;
-      slippageBps?: string;
-    }) => {
-      const payload: SwapRequestPayload = {
-        inputMint: options.inputMint,
-        outputMint: options.outputMint,
-        amountAtomic: options.amountAtomic,
-        userPublicKey: options.userPublicKey,
-        slippageBps: Math.round(
-          normalizeOptionalNumber(options.slippageBps, appConfig.DEFAULT_SLIPPAGE_BPS)
-        )
-      };
+    program
+        .command("swap")
+        .description("Run a single swap execution flow (placeholder).")
+        .requiredOption("--inputMint <mint>", "Input token mint address")
+        .requiredOption("--outputMint <mint>", "Output token mint address")
+        .requiredOption("--amountAtomic <value>", "Swap amount in atomic units")
+        .requiredOption("--userPublicKey <pubkey>", "User public key for instruction context")
+        .option("--slippageBps <value>", "Optional slippage bps override")
+        .action(async (options: {
+            inputMint: string;
+            outputMint: string;
+            amountAtomic: string;
+            userPublicKey: string;
+            slippageBps?: string;
+        }) => {
+            const payload: SwapRequestPayload = {
+                inputMint: options.inputMint,
+                outputMint: options.outputMint,
+                amountAtomic: options.amountAtomic,
+                userPublicKey: options.userPublicKey,
+                slippageBps: Math.round(
+                    normalizeOptionalNumber(options.slippageBps, appConfig.DEFAULT_SLIPPAGE_BPS)
+                )
+            };
 
-      const result = await executeSwapPipeline(payload, dependencies, "cli-swap");
-      logger.info("Swap placeholder pipeline completed", {
-        signature: result.signature,
-        status: result.status
-      });
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    });
+            const result = await executeSwapPipeline(payload, dependencies, "cli-swap");
+            logger.info("Swap placeholder pipeline completed", {
+                signature: result.signature,
+                status: result.status
+            });
+            process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        });
 }

@@ -14,69 +14,84 @@ import { executeSwapPipeline, type SwapPipelineDependencies } from "./swap.js";
  * - Uses the same core execution pipeline as one-off swaps for consistent behavior.
  */
 
+function parseMaxRuns(value: string | undefined): number | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error("maxRuns must be a positive integer when provided.");
+    }
+
+    return parsed;
+}
+
 export function registerDcaCommand(program: Command, dependencies: SwapPipelineDependencies): void {
-  program
-    .command("dca")
-    .description("Run recurring DCA schedule (placeholder).")
-    .requiredOption("--inputMint <mint>", "Input token mint address")
-    .requiredOption("--outputMint <mint>", "Output token mint address")
-    .requiredOption("--amountAtomic <value>", "Swap amount in atomic units")
-    .requiredOption("--userPublicKey <pubkey>", "User public key for instruction context")
-    .option("--every <cron>", "Cron expression for schedule", appConfig.PRICE_MONITOR_CRON)
-    .option("--maxRuns <number>", "Stop after this many runs")
-    .option("--runOnce", "Execute once immediately without scheduling", false)
-    .action(async (options: {
-      inputMint: string;
-      outputMint: string;
-      amountAtomic: string;
-      userPublicKey: string;
-      every: string;
-      maxRuns?: string;
-      runOnce: boolean;
-    }) => {
-      const payload: SwapRequestPayload = {
-        inputMint: options.inputMint,
-        outputMint: options.outputMint,
-        amountAtomic: options.amountAtomic,
-        userPublicKey: options.userPublicKey,
-        slippageBps: appConfig.DEFAULT_SLIPPAGE_BPS
-      };
+    program
+        .command("dca")
+        .description("Run recurring DCA schedule (placeholder).")
+        .requiredOption("--inputMint <mint>", "Input token mint address")
+        .requiredOption("--outputMint <mint>", "Output token mint address")
+        .requiredOption("--amountAtomic <value>", "Swap amount in atomic units")
+        .requiredOption("--userPublicKey <pubkey>", "User public key for instruction context")
+        .option("--every <cron>", "Cron expression for schedule", appConfig.PRICE_MONITOR_CRON)
+        .option("--maxRuns <number>", "Stop after this many runs")
+        .option("--runOnce", "Execute once immediately without scheduling", false)
+        .action(async (options: {
+            inputMint: string;
+            outputMint: string;
+            amountAtomic: string;
+            userPublicKey: string;
+            every: string;
+            maxRuns?: string;
+            runOnce: boolean;
+        }) => {
+            const payload: SwapRequestPayload = {
+                inputMint: options.inputMint,
+                outputMint: options.outputMint,
+                amountAtomic: options.amountAtomic,
+                userPublicKey: options.userPublicKey,
+                slippageBps: appConfig.DEFAULT_SLIPPAGE_BPS
+            };
 
-      if (options.runOnce) {
-        const result = await executeSwapPipeline(payload, dependencies, "cli-dca-once");
-        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-        return;
-      }
+            if (options.runOnce) {
+                const result = await executeSwapPipeline(payload, dependencies, "cli-dca-once");
+                process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+                return;
+            }
 
-            void task.stop();
-      const maxRuns = options.maxRuns ? Number.parseInt(options.maxRuns, 10) : undefined;
+            const maxRuns = parseMaxRuns(options.maxRuns);
+            let runCount = 0;
 
-      logger.info("Starting DCA placeholder schedule", {
-        cron: options.every,
-        maxRuns: maxRuns ?? "unbounded"
-      });
+            logger.info("Starting DCA placeholder schedule", {
+                cron: options.every,
+                maxRuns: maxRuns ?? "unbounded"
+            });
 
-      const task = cron.schedule(options.every, () => {
-        void (async () => {
-      void task.start();
-          logger.info("Executing DCA placeholder tick", { runCount });
+            const task = cron.schedule(options.every, () => {
+                void handleTick().catch((error: unknown) => {
+                    logger.error("DCA placeholder tick failed", {
+                        error: String(error),
+                        runCount
+                    });
+                });
+            });
 
-          const result = await executeSwapPipeline(payload, dependencies, "cli-dca");
-          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+            const handleTick = async (): Promise<void> => {
+                runCount += 1;
+                logger.info("Executing DCA placeholder tick", { runCount });
 
-          if (maxRuns !== undefined && runCount >= maxRuns) {
-            logger.info("Reached maxRuns for DCA placeholder schedule", { maxRuns });
-            task.stop();
-          }
-        })().catch((error: unknown) => {
-          logger.error("DCA placeholder tick failed", {
-            error: String(error),
-            runCount
-          });
+                const result = await executeSwapPipeline(payload, dependencies, "cli-dca");
+                process.stdout.write(`${JSON.stringify(result, null, 2)}\\n`);
+
+                if (maxRuns !== undefined && runCount >= maxRuns) {
+                    logger.info("Reached maxRuns for DCA placeholder schedule", { maxRuns });
+                    void task.stop();
+                }
+            };
+
+            void task.start();
+            logger.info("DCA placeholder scheduler is running. Press Ctrl+C to stop.");
         });
-      });
-
-      task.start();
-      logger.info("DCA placeholder scheduler is running. Press Ctrl+C to stop.");
-    });
 }

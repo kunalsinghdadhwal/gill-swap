@@ -149,6 +149,11 @@ pnpm dca -- --inputMint So11111111111111111111111111111111111111112 \
 
 ## Notes
 
+- Gill package/import mapping for implementation phase:
+  - Install dependency: `gill`
+  - Core APIs import path: `gill`
+  - Program helpers import path: `gill/programs`
+  - Node signer/runtime helpers import path: `gill/node`
 - Real Jupiter HTTP calls are intentionally not implemented yet.
 - Real Gill SDK transaction assembly/signing is intentionally not implemented yet.
 - Real Solana send/confirm lifecycle is intentionally not implemented yet.

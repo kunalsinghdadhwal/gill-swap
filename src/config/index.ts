@@ -16,42 +16,42 @@ import { envSchema, type AppEnv } from "./schema.js";
 dotenv.config();
 
 const fileDefaultsSchema = z.object({
-  appName: z.string().min(1),
-  cluster: z.string().min(1),
-  server: z.object({
-    healthRoute: z.string().min(1),
-    apiPrefix: z.string().min(1)
-  }),
-  monitor: z.object({
-    enabled: z.boolean()
-  })
+    appName: z.string().min(1),
+    cluster: z.string().min(1),
+    server: z.object({
+        healthRoute: z.string().min(1),
+        apiPrefix: z.string().min(1)
+    }),
+    monitor: z.object({
+        enabled: z.boolean()
+    })
 });
 
 export type FileDefaults = z.infer<typeof fileDefaultsSchema>;
 
 export interface AppConfig extends AppEnv {
-  defaults: FileDefaults;
-  isProduction: boolean;
+    defaults: FileDefaults;
+    isProduction: boolean;
 }
 
 function loadFileDefaults(): FileDefaults {
-  const filePath = path.resolve(process.cwd(), "config", "default.json");
-  const contents = fs.readFileSync(filePath, "utf-8");
-  const parsed = JSON.parse(contents) as unknown;
-  return fileDefaultsSchema.parse(parsed);
+    const filePath = path.resolve(process.cwd(), "config", "default.json");
+    const contents = fs.readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(contents) as unknown;
+    return fileDefaultsSchema.parse(parsed);
 }
 
 function loadEnv(): AppEnv {
-  const result = envSchema.safeParse(process.env);
+    const result = envSchema.safeParse(process.env);
 
-  if (!result.success) {
-    const issueText = result.error.issues
-      .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-      .join("; ");
-    throw new Error(`Invalid environment configuration: ${issueText}`);
-  }
+    if (!result.success) {
+        const issueText = result.error.issues
+            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+            .join("; ");
+        throw new Error(`Invalid environment configuration: ${issueText}`);
+    }
 
-  return result.data;
+    return result.data;
 }
 
 /**
@@ -61,12 +61,12 @@ function loadEnv(): AppEnv {
  * profiles are needed in tests or worker processes.
  */
 export const appConfig: AppConfig = (() => {
-  const env = loadEnv();
-  const defaults = loadFileDefaults();
+    const env = loadEnv();
+    const defaults = loadFileDefaults();
 
-  return {
-    ...env,
-    defaults,
-    isProduction: env.NODE_ENV === "production"
-  };
+    return {
+        ...env,
+        defaults,
+        isProduction: env.NODE_ENV === "production"
+    };
 })();
